@@ -1,5 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: 'AWS CloudFormation Template for a single-instance bastion host'
+
 Parameters:
   AvailabilityZone:
     Type: AWS::EC2::AvailabilityZone::Name
@@ -127,28 +128,8 @@ Resources:
   IsolationSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: >
-        IR containment SG - no ingress or egress rules defined. Blocks ALL
-        traffic in both directions. Apply during incident response to fully
-        isolate the bastion from the VPC and the public Internet.
+      GroupDescription: "IR containment SG - no ingress or egress rules. Blocks ALL traffic."
       VpcId: !Ref VPC
-
-  # COMMENT REQUIREMENT: The InboundAccessSecurityGroup below allows shell
-  # (SSH port 22) access from inside the network. During normal operations
-  # this permits authorized operators already on the VPC to reach the bastion
-  # via SSH. During incident response, replace this with IsolationSecurityGroup
-  # to cut off all access — see IR Playbook STEP 2 above.
-  BastionInstance:
-    Type: AWS::EC2::Instance
-    Properties:
-      AvailabilityZone: !Ref AvailabilityZone
-      ImageId: !Ref LatestAmiId
-      InstanceType:
-        !FindInMap [EnvironmentTypeToInstanceType, !Ref EnvironmentType, InstanceType]
-      SubnetId: !Ref Subnet10
-      SecurityGroups:
-        - !Ref InboundAccessSecurityGroup
-      KeyName: !Ref KeyName
 
   InboundAccessSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -160,6 +141,24 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: 10.0.0.0/16
+
+  # NOTE: The InboundAccessSecurityGroup below allows shell (SSH port 22)
+  # access from inside the network. During incident response, replace it
+  # with IsolationSecurityGroup to cut off all access — see STEP 2 above.
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      ImageId: !Ref LatestAmiId
+      InstanceType:
+        !FindInMap [EnvironmentTypeToInstanceType, !Ref EnvironmentType, InstanceType]
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          SubnetId: !Ref Subnet10
+          GroupSet:
+            - !Ref InboundAccessSecurityGroup
+      KeyName: !Ref KeyName
 
 Outputs:
   InstanceId:
