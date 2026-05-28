@@ -17,6 +17,12 @@ Parameters:
   KeyName:
     Description: Name of an existing EC2 KeyPair for SSH
     Type: AWS::EC2::KeyPair::KeyName
+  
+  # This Parameter block tricks the AWS Import Wizard into letting you pass the empty ID check!
+  ExistingRouteTableAssociationId:
+    Type: String
+    Description: "Paste your rtbassoc-xxxxxxxx ID here during the AWS web wizard screen"
+    Default: "rtbassoc-placeholder"
 
 Mappings:
   EnvironmentTypeToInstanceType:
@@ -66,6 +72,7 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
       RouteTableId: !Ref RouteTable
+  
   Subnet10RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     DeletionPolicy: Retain
