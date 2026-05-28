@@ -44,7 +44,7 @@ Resources:
     DeletionPolicy: Retain
     Properties:
       VpcId: !Ref VPC
-      InternetGatewayId: !Ref InternetGateway
+      InternetGatewayId: "igw-04f6dd460e26bbac6"
   Subnet10:
     Type: AWS::EC2::Subnet
     DeletionPolicy: Retain
@@ -64,11 +64,11 @@ Resources:
     DependsOn: InternetGateway
     Properties:
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref InternetGateway
+      GatewayId: "igw-04f6dd460e26bbac6"
       RouteTableId: !Ref RouteTable
+  
   Subnet10RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
-    DeletionPolicy: Retain
     Properties:
       RouteTableId: !Ref RouteTable
       SubnetId: !Ref Subnet10
@@ -158,7 +158,7 @@ Resources:
       # During incident response, replace this with IsolationSecurityGroup
       # to cut off all access — see IR Playbook STEP 2 above.
       SecurityGroups: 
-        - !Ref 'InboundAccessSecurityGroup'
+        - "sg-09f2961cbf236bc33"
       KeyName: !Ref 'KeyName'
 
   InboundAccessSecurityGroup:
