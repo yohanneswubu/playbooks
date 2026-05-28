@@ -17,7 +17,6 @@ Parameters:
   KeyName:
     Description: Name of an existing EC2 KeyPair for SSH
     Type: AWS::EC2::KeyPair::KeyName
-
 Mappings:
   EnvironmentTypeToInstanceType:
     dev:
@@ -26,7 +25,6 @@ Mappings:
       InstanceType: t2.micro
     prod:
       InstanceType: t2.small
-
 Resources:
   VPC:
     Type: AWS::EC2::VPC
@@ -65,6 +63,75 @@ Resources:
     Properties:
       RouteTableId: !Ref RouteTable
       SubnetId: !Ref Subnet10
+
+  # ===========================================================================
+  # INCIDENT RESPONSE PLAYBOOK — Bastion Host Isolation
+  # Trigger: Anomalous network activity detected via automated monitoring
+  #          (e.g., unexpected outbound connections, port scans, data exfil).
+  #
+  # STEP 1 — DETECT & TRIAGE
+  #   - Review VPC Flow Logs and CloudWatch alarms that fired.
+  #   - Confirm the anomaly is tied to this bastion (check InstanceId in Outputs).
+  #   - Notify the incident response team and open a ticket. Set severity.
+  #
+  # STEP 2 — PRESERVE EVIDENCE (before making any changes)
+  #   - Create an AMI snapshot of the instance for forensic analysis:
+  #       aws ec2 create-image --instance-id <InstanceId> \
+  #           --name "ir-bastion-snapshot-$(date +%Y%m%d%H%M%S)" --no-reboot
+  #   - Capture instance metadata and current security group assignments:
+  #       aws ec2 describe-instances --instance-ids <InstanceId>
+  #   - Export current VPC Flow Logs to S3 for chain-of-custody retention.
+  #
+  # STEP 3 — CONTAIN — Replace security groups with the isolation group
+  #   This is the critical containment step. Swap ALL security groups on the
+  #   bastion with only the IsolationSecurityGroup, which has no inbound or
+  #   outbound rules, cutting off all VPC-internal and Internet traffic:
+  #
+  #       aws ec2 modify-instance-attribute \
+  #           --instance-id <InstanceId> \
+  #           --groups <IsolationSecurityGroupId>
+  #
+  #   The IsolationSecurityGroupId is exported in the stack Outputs as
+  #   "IsolationSecurityGroupId" and can also be retrieved with:
+  #       aws cloudformation describe-stacks --stack-name <StackName> \
+  #           --query "Stacks[0].Outputs"
+  #
+  # STEP 4 — VERIFY ISOLATION
+  #   - Confirm no new connections are accepted:
+  #       aws ec2 describe-instance-attribute \
+  #           --instance-id <InstanceId> --attribute groupSet
+  #   - Verify VPC Flow Logs show REJECT for all subsequent traffic.
+  #
+  # STEP 5 — INVESTIGATE
+  #   - Mount the forensic AMI snapshot on a separate, isolated investigation
+  #     instance with no Internet access.
+  #   - Examine: auth logs (/var/log/secure), bash history, cron jobs,
+  #     running processes, network connections at time of snapshot.
+  #   - Check CloudTrail for any API calls made using credentials on the host.
+  #
+  # STEP 6 — ERADICATE & RECOVER
+  #   - Terminate the compromised instance (do NOT reuse it).
+  #   - Rotate all SSH keys, IAM credentials, and secrets that may have been
+  #     exposed on or accessible from the bastion.
+  #   - Deploy a fresh bastion from this template into a clean environment.
+  #   - Review and harden: restrict SSH CidrIp from 0.0.0.0/0 to known IPs.
+  #
+  # STEP 7 — POST-INCIDENT
+  #   - Document timeline, root cause, and remediation actions.
+  #   - Update detection rules and CloudWatch alarms based on findings.
+  #   - Schedule a post-mortem within 5 business days.
+  # ===========================================================================
+
+  # IsolationSecurityGroup: Used during incident response to cut off all
+  # inbound and outbound traffic to/from the bastion host. This group has no
+  # ingress or egress rules, effectively air-gapping the instance from both
+  # the VPC-internal network and the public Internet. See playbook STEP 3.
+  IsolationSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Incident response isolation — no inbound or outbound rules"
+      VpcId: !Ref VPC
+
   BastionInstance:
     Type: AWS::EC2::Instance
     Properties:
@@ -72,9 +139,14 @@ Resources:
       ImageId: !Ref LatestAmiId
       InstanceType:
         !FindInMap [EnvironmentTypeToInstanceType, !Ref EnvironmentType, InstanceType]
-      SecurityGroups: 
+      # NOTE: The security group below (InboundAccessSecurityGroup) permits
+      # inbound SSH (port 22) from within the network (currently 0.0.0.0/0 —
+      # restrict this CidrIp to your internal CIDR, e.g. 10.0.0.0/8, or a
+      # specific jump-host IP, to limit shell access to internal network only).
+      SecurityGroups:
         - !Ref 'InboundAccessSecurityGroup'
       KeyName: !Ref 'KeyName'
+
   InboundAccessSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -92,4 +164,8 @@ Outputs:
   URI:
     Description: URI that points to public SSH end point
     Value: !Sub ssh://${BastionInstance.PublicDnsName}
-
+  IsolationSecurityGroupId:
+    Description: >
+      Security group ID with no rules for incident response isolation.
+      Use with: aws ec2 modify-instance-attribute --instance-id <id> --groups <this-value>
+    Value: !GetAtt IsolationSecurityGroup.GroupId
