@@ -12,7 +12,7 @@ Parameters:
       - test
       - prod
   LatestAmiId:
-    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Type:  'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
   KeyName:
     Description: Name of an existing EC2 KeyPair for SSH
@@ -38,40 +38,31 @@ Resources:
   VPCGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-      VpcId:
-        Ref: VPC
-      InternetGatewayId:
-        Ref: InternetGateway
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
   Subnet10:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone:
-        Ref: AvailabilityZone
-      VpcId:
-        Ref: VPC
+      AvailabilityZone: !Ref AvailabilityZone
+      VpcId: !Ref VPC
       CidrBlock: 10.0.10.0/24
       MapPublicIpOnLaunch: true
   RouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
-      VpcId:
-        Ref: VPC
+      VpcId: !Ref VPC
   InternetRoute:
     Type: AWS::EC2::Route
     DependsOn: InternetGateway
     Properties:
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId:
-        Ref: InternetGateway
-      RouteTableId:
-        Ref: RouteTable
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref RouteTable
   Subnet10RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId:
-        Ref: RouteTable
-      SubnetId:
-        Ref: Subnet10
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref Subnet10
 
   # ===========================================================================
   # INCIDENT RESPONSE PLAYBOOK — Bastion Host Isolation
@@ -138,55 +129,43 @@ Resources:
   IsolationSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: "Incident response isolation - no inbound or outbound rules"
-      VpcId:
-        Ref: VPC
+      GroupDescription: "Incident response isolation — no inbound or outbound rules"
+      VpcId: !Ref VPC
 
   BastionInstance:
     Type: AWS::EC2::Instance
     Properties:
-      AvailabilityZone:
-        Ref: AvailabilityZone
-      ImageId:
-        Ref: LatestAmiId
+      AvailabilityZone: !Ref AvailabilityZone
+      ImageId: !Ref LatestAmiId
       InstanceType:
-        Fn::FindInMap:
-          - EnvironmentTypeToInstanceType
-          - Ref: EnvironmentType
-          - InstanceType
+        !FindInMap [EnvironmentTypeToInstanceType, !Ref EnvironmentType, InstanceType]
       # NOTE: The security group below (InboundAccessSecurityGroup) permits
       # inbound SSH (port 22) from within the network (currently 0.0.0.0/0 —
       # restrict this CidrIp to your internal CIDR, e.g. 10.0.0.0/8, or a
       # specific jump-host IP, to limit shell access to internal network only).
       SecurityGroups:
-        - Ref: InboundAccessSecurityGroup
-      KeyName:
-        Ref: KeyName
+        - !Ref 'InboundAccessSecurityGroup'
+      KeyName: !Ref 'KeyName'
 
   InboundAccessSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: "Allow inbound tcp on SSH port"
       SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
 
 Outputs:
   InstanceId:
     Description: InstanceId of the newly created EC2 instance
-    Value:
-      Ref: BastionInstance
+    Value: !Ref 'BastionInstance'
   URI:
     Description: URI that points to public SSH end point
-    Value:
-      Fn::Sub: "ssh://${BastionInstance.PublicDnsName}"
+    Value: !Sub ssh://${BastionInstance.PublicDnsName}
   IsolationSecurityGroupId:
     Description: >
       Security group ID with no rules for incident response isolation.
       Use with: aws ec2 modify-instance-attribute --instance-id <id> --groups <this-value>
-    Value:
-      Fn::GetAtt:
-        - IsolationSecurityGroup
-        - GroupId
+    Value: !GetAtt IsolationSecurityGroup.GroupId
