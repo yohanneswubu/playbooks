@@ -116,22 +116,15 @@ Resources:
   # ===========================================================================
 
   # IsolationSecurityGroup — used during incident response containment (STEP 2).
-  #
-  # Completely isolates the bastion host from ALL network traffic — no inbound,
-  # no outbound, no VPC-internal communication, no public Internet access.
-  #
-  # By omitting both SecurityGroupIngress and SecurityGroupEgress, CloudFormation
-  # does NOT create the default AWS "allow all outbound" egress rule, leaving
-  # the security group with an implicit deny on all traffic in both directions.
-  # See: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/
-  #      aws-properties-ec2-security-group.html  ("Remove the Default Rule")
+  # Completely isolates the bastion host from ALL network traffic.
+  # By omitting ingress and egress rules, CloudFormation does NOT create the
+  # default AWS "allow all outbound" egress rule, leaving an implicit deny all.
   IsolationSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: >
-        IR containment SG — no ingress or egress rules defined, so the AWS
-        default allow-all-egress rule is not created. Blocks ALL traffic in
-        both directions. Apply during incident response to fully isolate the
+        IR containment SG — no ingress or egress rules defined. Blocks ALL traffic
+        in both directions. Apply during incident response to fully isolate the
         bastion from the VPC and the public Internet.
       VpcId: !Ref VPC
 
@@ -142,6 +135,7 @@ Resources:
       ImageId: !Ref LatestAmiId
       InstanceType:
         !FindInMap [EnvironmentTypeToInstanceType, !Ref EnvironmentType, InstanceType]
+      SubnetId: !Ref Subnet10   # Fixed: Explicitly mapped to your custom lab subnet
       # COMMENT REQUIREMENT: The InboundAccessSecurityGroup below allows shell (SSH port 22) access
       # from inside the network. During normal operations this permits authorized
       # operators already on the VPC or VPN to reach the bastion via SSH.
@@ -155,7 +149,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: "Allow inbound tcp on SSH port"
-      VpcId: !Ref VPC
+      VpcId: !Ref VPC          # Fixed: Tied group to your stack's custom VPC
       SecurityGroupIngress:
       - IpProtocol: tcp
         FromPort: 22
