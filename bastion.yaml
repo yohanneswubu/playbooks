@@ -30,7 +30,6 @@ Mappings:
 Resources:
   VPC:
     Type: AWS::EC2::VPC
-    DeletionPolicy: Retain
     Properties:
       CidrBlock: 10.0.0.0/16
       EnableDnsSupport: true
@@ -38,49 +37,34 @@ Resources:
       InstanceTenancy: default
   InternetGateway:
     Type: AWS::EC2::InternetGateway
-    DeletionPolicy: Retain
   VPCGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
-    DeletionPolicy: Retain
     Properties:
-      VpcId:
-        Ref: VPC
-      InternetGatewayId:
-        Ref: InternetGateway
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
   Subnet10:
     Type: AWS::EC2::Subnet
-    DeletionPolicy: Retain
     Properties:
-      AvailabilityZone:
-        Ref: AvailabilityZone
-      VpcId:
-        Ref: VPC
+      AvailabilityZone: !Ref AvailabilityZone
+      VpcId: !Ref VPC
       CidrBlock: 10.0.10.0/24
       MapPublicIpOnLaunch: true
   RouteTable:
     Type: AWS::EC2::RouteTable
-    DeletionPolicy: Retain
     Properties:
-      VpcId:
-        Ref: VPC
+      VpcId: !Ref VPC
   InternetRoute:
     Type: AWS::EC2::Route
-    DeletionPolicy: Retain
     DependsOn: InternetGateway
     Properties:
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId:
-        Ref: InternetGateway
-      RouteTableId:
-        Ref: RouteTable
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref RouteTable
   Subnet10RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
-    DeletionPolicy: Retain
     Properties:
-      RouteTableId:
-        Ref: RouteTable
-      SubnetId:
-        Ref: Subnet10
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref Subnet10
 
   # ===========================================================================
   # INCIDENT RESPONSE PLAYBOOK — Bastion Host Containment
@@ -143,47 +127,51 @@ Resources:
   #      aws-properties-ec2-security-group.html  ("Remove the Default Rule")
   IsolationSecurityGroup:
     Type: AWS::EC2::SecurityGroup
-    DeletionPolicy: Retain
     Properties:
       GroupDescription: >
         IR containment SG — no ingress or egress rules defined, so the AWS
         default allow-all-egress rule is not created. Blocks ALL traffic in
         both directions. Apply during incident response to fully isolate the
         bastion from the VPC and the public Internet.
-      VpcId:
-        Ref: VPC
+      VpcId: !Ref VPC
 
   BastionInstance:
     Type: AWS::EC2::Instance
-    DeletionPolicy: Retain
     Properties:
-      AvailabilityZone:
-        Ref: AvailabilityZone
-      ImageId:
-        Ref: LatestAmiId
+      AvailabilityZone: !Ref AvailabilityZone
+      ImageId: !Ref LatestAmiId
       InstanceType:
-        Fn::FindInMap: [EnvironmentTypeToInstanceType, {Ref: EnvironmentType}, InstanceType]
-      SubnetId:
-        Ref: Subnet10
+        !FindInMap [EnvironmentTypeToInstanceType, !Ref EnvironmentType, InstanceType]
+      SubnetId: !Ref Subnet10
       # COMMENT REQUIREMENT: The InboundAccessSecurityGroup below allows shell (SSH port 22) access
       # from inside the network. During normal operations this permits authorized
       # operators already on the VPC or VPN to reach the bastion via SSH.
       # During incident response, replace this with IsolationSecurityGroup
       # to cut off all access — see IR Playbook STEP 2 above.
-      SecurityGroupIds: 
-        - Ref: InboundAccessSecurityGroup
-      KeyName:
-        Ref: KeyName
+      SecurityGroups: 
+        - !Ref 'InboundAccessSecurityGroup'
+      KeyName: !Ref 'KeyName'
 
   InboundAccessSecurityGroup:
     Type: AWS::EC2::SecurityGroup
-    DeletionPolicy: Retain
     Properties:
       GroupDescription: "Allow inbound tcp on SSH port from inside the VPC network"
-      VpcId:
-        Ref: VPC
+      VpcId: !Ref VPC
       SecurityGroupIngress:
       - IpProtocol: tcp
         FromPort: 22
         ToPort: 22
         CidrIp: 10.0.0.0/16
+
+Outputs:
+  InstanceId:
+    Description: InstanceId of the newly created EC2 instance
+    Value: !Ref 'BastionInstance'
+  URI:
+    Description: URI that points to public SSH end point
+    Value: !Sub ssh://${BastionInstance.PublicDnsName}
+  IsolationSecurityGroupId:
+    Description: >
+      Security Group ID for IR containment. Apply this (replacing all other
+      SGs) during incident response STEP 2 to fully isolate the bastion host.
+    Value: !Ref IsolationSecurityGroup
