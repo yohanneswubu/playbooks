@@ -187,19 +187,3 @@ Resources:
         FromPort: 22
         ToPort: 22
         CidrIp: 10.0.0.0/16
-
-Outputs:
-  InstanceId:
-    Description: InstanceId of the newly created EC2 instance
-    Value:
-      Ref: BastionInstance
-  URI:
-    Description: URI that points to public SSH end point
-    Value:
-      Fn::Sub: "ssh://${BastionInstance.PublicDnsName}"
-  IsolationSecurityGroupId:
-    Description: >
-      Security Group ID for IR containment. Apply this (replacing all other
-      SGs) during incident response STEP 2 to fully isolate the bastion host.
-    Value:
-      Ref: IsolationSecurityGroup
