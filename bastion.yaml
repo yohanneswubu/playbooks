@@ -69,6 +69,7 @@ Resources:
   
   Subnet10RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    DeletionPolicy: Retain
     Properties:
       RouteTableId: !Ref RouteTable
       SubnetId: !Ref Subnet10
