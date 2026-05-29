@@ -1,21 +1,28 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'AWS CloudFormation Template for a single-instance bastion host'
+Description: >
+  Bastion host environment with IR playbook comments and isolation security group.
+  All imported resources include DeletionPolicy: Retain.
+
 Parameters:
   AvailabilityZone:
     Type: AWS::EC2::AvailabilityZone::Name
+
   EnvironmentType:
-    Description: "Specify which env to run in"
+    Description: Environment selection
     Type: String
     Default: dev
     AllowedValues:
       - dev
       - test
       - prod
+
   LatestAmiId:
-    Type:  'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Description: Latest Amazon Linux 2 AMI
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
   KeyName:
-    Description: Name of an existing EC2 KeyPair for SSH
+    Description: SSH Key Pair Name
     Type: AWS::EC2::KeyPair::KeyName
 
 Mappings:
@@ -28,68 +35,135 @@ Mappings:
       InstanceType: t2.small
 
 Resources:
+
+  #############################################################
+  # VPC
+  #############################################################
+  # IR Playbook Step (Comment):
+  # - Step 1: Identify compromised bastion host.
+  # - Step 2: Contain by isolating the instance’s networking (new SG).
+  # - Step 3: Retain VPC resources to support forensic acquisition.
   VPC:
     Type: AWS::EC2::VPC
+    DeletionPolicy: Retain
     Properties:
       CidrBlock: 10.0.0.0/16
       EnableDnsSupport: true
       EnableDnsHostnames: true
       InstanceTenancy: default
+
+  #############################################################
+  # Internet Gateway
+  #############################################################
   InternetGateway:
     Type: AWS::EC2::InternetGateway
+    DeletionPolicy: Retain
+    Properties: {}
+
   VPCGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
+    DeletionPolicy: Retain
     Properties:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
+
+  #############################################################
+  # Subnet
+  #############################################################
   Subnet10:
     Type: AWS::EC2::Subnet
+    DeletionPolicy: Retain
     Properties:
-      AvailabilityZone: !Ref AvailabilityZone
       VpcId: !Ref VPC
       CidrBlock: 10.0.10.0/24
       MapPublicIpOnLaunch: true
+      AvailabilityZone: !Ref AvailabilityZone
+
+  #############################################################
+  # Route Table + Internet Route
+  #############################################################
   RouteTable:
     Type: AWS::EC2::RouteTable
+    DeletionPolicy: Retain
     Properties:
       VpcId: !Ref VPC
+
   InternetRoute:
     Type: AWS::EC2::Route
-    DependsOn: InternetGateway
+    DeletionPolicy: Retain
     Properties:
+      RouteTableId: !Ref RouteTable
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
-      RouteTableId: !Ref RouteTable
+
   Subnet10RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    DeletionPolicy: Retain
     Properties:
-      RouteTableId: !Ref RouteTable
       SubnetId: !Ref Subnet10
-  BastionInstance:
-    Type: AWS::EC2::Instance
-    Properties:
-      AvailabilityZone: !Ref AvailabilityZone
-      ImageId: !Ref LatestAmiId
-      InstanceType:
-        !FindInMap [EnvironmentTypeToInstanceType, !Ref EnvironmentType, InstanceType]
-      SecurityGroups: 
-        - !Ref 'InboundAccessSecurityGroup'
-      KeyName: !Ref 'KeyName'
+      RouteTableId: !Ref RouteTable
+
+  #############################################################
+  # NORMAL SECURITY GROUP (Inbound SSH)
+  #############################################################
   InboundAccessSecurityGroup:
     Type: AWS::EC2::SecurityGroup
+    DeletionPolicy: Retain
     Properties:
-      GroupDescription: "Allow inbound tcp on SSH port"
+      GroupDescription: Allow SSH from the internet
+      VpcId: !Ref VPC
       SecurityGroupIngress:
       - IpProtocol: tcp
         FromPort: 22
         ToPort: 22
         CidrIp: 0.0.0.0/0
 
-Outputs:
-  InstanceId:
-    Description: InstanceId of the newly created EC2 instance
-    Value: !Ref 'BastionInstance'
-  URI:
-    Description: URI that points to public SSH end point
-    Value: !Sub ssh://${BastionInstance.PublicDnsName}
+  #############################################################
+  # ISOLATION SECURITY GROUP (Assignment Requirement)
+  #############################################################
+  # IR Playbook Step (Comment):
+  # - Step 4: Apply this SG to cut off ALL ingress/egress immediately.
+  # - Step 5: Forensic capture can occur over out-of-band means (console, SSM).
+  IsolationSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    DeletionPolicy: Retain
+    Properties:
+      GroupDescription: Completely isolate the bastion from all network traffic
+      VpcId: !Ref VPC
+      # No ingress rules
+      # No egress rules (blocks ALL traffic)
+      SecurityGroupEgress: []
 
+  #############################################################
+  # Bastion Instance
+  #############################################################
+  # IR Playbook Step (Comment):
+  # - Step 6: During containment, switch BastionInstance to IsolationSecurityGroup.
+  # - Step 7: Retain instance for forensic snapshot, memory capture, log extraction.
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    DeletionPolicy: Retain
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !FindInMap [EnvironmentTypeToInstanceType, !Ref EnvironmentType, InstanceType]
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          SubnetId: !Ref Subnet10
+          GroupSet:
+            # Default operation: Access SG
+            # For IR containment swap manually → Isolation SG
+            - !Ref InboundAccessSecurityGroup
+      Tags:
+        - Key: Name
+          Value: BastionHost
+
+Outputs:
+  BastionPublicIP:
+    Description: Bastion Public IP
+    Value: !GetAtt BastionInstance.PublicIp
+
+  BastionInstanceId:
+    Description: Instance ID
+    Value: !Ref BastionInstance
